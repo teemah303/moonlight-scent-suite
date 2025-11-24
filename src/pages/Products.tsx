@@ -80,8 +80,28 @@ export default function Products() {
     }
     createMutation.mutate();
   };
+  const deleteMutation = useMutation({
+  mutationFn: async (id: string) => {
+    const { error } = await supabase.from("products").delete().eq("id", id);
+    if (error) throw error;
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["products"] });
+    toast.success("Product deleted successfully!");
+  },
+  onError: (error: Error) => {
+    toast.error(`Failed to delete product: ${error.message}`);
+  },
+});
+ 
+  const handleDelete = (id: string) => {
+  const confirmed = window.confirm("Are you sure you want to delete this product?");
+  if (!confirmed) return;
 
-  const profitMargin = (product: any) => {
+  deleteMutation.mutate(id);
+};
+
+ const profitMargin = (product: any) => {
     const profit = Number(product.selling_price) - Number(product.cost_price);
     const margin = (profit / Number(product.selling_price)) * 100;
     return margin.toFixed(1);
