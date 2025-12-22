@@ -90,3 +90,24 @@ CREATE TRIGGER update_products_updated_at
   BEFORE UPDATE ON public.products
   FOR EACH ROW
   EXECUTE FUNCTION public.update_updated_at_column();
+
+-- Create storage bucket for product images
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('product-images', 'product-images', true);
+
+-- Set up storage policies
+CREATE POLICY "Public Access"
+ON storage.objects FOR SELECT
+USING ( bucket_id = 'product-images' );
+
+CREATE POLICY "Authenticated users can upload"
+ON storage.objects FOR INSERT
+WITH CHECK ( bucket_id = 'product-images' );
+
+CREATE POLICY "Users can update own uploads"
+ON storage.objects FOR UPDATE
+USING ( bucket_id = 'product-images' );
+
+CREATE POLICY "Users can delete own uploads"
+ON storage.objects FOR DELETE
+USING ( bucket_id = 'product-images' );
