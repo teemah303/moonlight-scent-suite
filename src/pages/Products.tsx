@@ -9,10 +9,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, AlertCircle, Package } from "lucide-react";
+import { Plus, AlertCircle, Package, Pencil, Trash2, Upload, Image } from "lucide-react";
 
 export default function Products() {
   const [open, setOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
   const [formData, setFormData] = useState({
     name: "",
     category_id: "",
@@ -20,6 +23,7 @@ export default function Products() {
     selling_price: "",
     quantity: "",
     description: "",
+    image_url: "",
   });
   const queryClient = useQueryClient();
 
@@ -44,33 +48,129 @@ export default function Products() {
     },
   });
 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadImage = async () => {
+    if (!imageFile) return null;
+
+    const fileExt = imageFile.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `products/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('product-images')
+      .upload(filePath, imageFile);
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return null;
+    }
+
+    const { data } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  };
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("products").insert([{
+      let imageUrl = formData.image_url;
+      
+      if (imageFile) {
+        const uploadedUrl = await uploadImage();
+        if (uploadedUrl) imageUrl = uploadedUrl;
+      }
+
+      const productData = {
         ...formData,
         cost_price: parseFloat(formData.cost_price),
         selling_price: parseFloat(formData.selling_price),
         quantity: parseInt(formData.quantity),
-      }]);
+        image_url: imageUrl,
+      };
+
+      if (editingProduct) {
+        const { error } = await supabase
+          .from("products")
+          .update(productData)
+          .eq("id", editingProduct.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("products").insert([productData]);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      toast.success(editingProduct ? "Product updated successfully!" : "Product added successfully!");
+      resetForm();
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to ${editingProduct ? 'update' : 'add'} product: ${error.message}`);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("products").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
-      toast.success("Product added successfully!");
-      setOpen(false);
-      setFormData({
-        name: "",
-        category_id: "",
-        cost_price: "",
-        selling_price: "",
-        quantity: "",
-        description: "",
-      });
+      toast.success("Product deleted successfully!");
     },
     onError: (error: Error) => {
-      toast.error(`Failed to add product: ${error.message}`);
+      toast.error(`Failed to delete product: ${error.message}`);
     },
   });
+
+  const resetForm = () => {
+    setOpen(false);
+    setEditingProduct(null);
+    setImageFile(null);
+    setImagePreview("");
+    setFormData({
+      name: "",
+      category_id: "",
+      cost_price: "",
+      selling_price: "",
+      quantity: "",
+      description: "",
+      image_url: "",
+    });
+  };
+
+  const handleEdit = (product: any) => {
+    setEditingProduct(product);
+    setFormData({
+      name: product.name,
+      category_id: product.category_id,
+      cost_price: product.cost_price.toString(),
+      selling_price: product.selling_price.toString(),
+      quantity: product.quantity.toString(),
+      description: product.description || "",
+      image_url: product.image_url || "",
+    });
+    setImagePreview(product.image_url || "");
+    setOpen(true);
+  };
+
+  const handleDelete = (id: string) => {
+    if (window.confirm("Are you sure you want to delete this product?")) {
+      deleteMutation.mutate(id);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,28 +180,8 @@ export default function Products() {
     }
     createMutation.mutate();
   };
-  const deleteMutation = useMutation({
-  mutationFn: async (id: string) => {
-    const { error } = await supabase.from("products").delete().eq("id", id);
-    if (error) throw error;
-  },
-  onSuccess: () => {
-    queryClient.invalidateQueries({ queryKey: ["products"] });
-    toast.success("Product deleted successfully!");
-  },
-  onError: (error: Error) => {
-    toast.error(`Failed to delete product: ${error.message}`);
-  },
-});
- 
-  const handleDelete = (id: string) => {
-  const confirmed = window.confirm("Are you sure you want to delete this product?");
-  if (!confirmed) return;
 
-  deleteMutation.mutate(id);
-};
-
- const profitMargin = (product: any) => {
+  const profitMargin = (product: any) => {
     const profit = Number(product.selling_price) - Number(product.cost_price);
     const margin = (profit / Number(product.selling_price)) * 100;
     return margin.toFixed(1);
@@ -114,85 +194,125 @@ export default function Products() {
           <h1 className="text-4xl font-serif font-bold text-foreground">Products</h1>
           <p className="text-muted-foreground mt-1">Manage your inventory</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(isOpen) => {
+          if (!isOpen) resetForm();
+          setOpen(isOpen);
+        }}>
           <DialogTrigger asChild>
             <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
               <Plus className="mr-2 h-4 w-4" />
               Add Product
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-card border-border max-w-2xl">
+          <DialogContent className="bg-card border-border max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="text-foreground font-serif">Add New Product</DialogTitle>
+              <DialogTitle className="text-foreground font-serif">
+                {editingProduct ? "Edit Product" : "Add New Product"}
+              </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Add a new product to your inventory
+                {editingProduct ? "Update product details" : "Add a new product to your inventory"}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <Label htmlFor="name" className="text-foreground">Product Name *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g., Midnight Rose Perfume"
-                    className="bg-background border-input text-foreground"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label htmlFor="category" className="text-foreground">Category *</Label>
-                  <Select value={formData.category_id} onValueChange={(value) => setFormData({ ...formData, category_id: value })}>
-                    <SelectTrigger className="bg-background border-input text-foreground">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-card border-border">
-                      {categories?.map((cat: any) => (
-                        <SelectItem key={cat.id} value={cat.id} className="text-foreground">
-                          {cat.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-4">
                 <div>
-                  <Label htmlFor="cost_price" className="text-foreground">Cost Price (₦) *</Label>
-                  <Input
-                    id="cost_price"
-                    type="number"
-                    step="0.01"
-                    value={formData.cost_price}
-                    onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })}
-                    placeholder="5000"
-                    className="bg-background border-input text-foreground"
-                  />
+                  <Label className="text-foreground">Product Image</Label>
+                  <div className="mt-2 flex items-center gap-4">
+                    {imagePreview ? (
+                      <div className="relative w-32 h-32 rounded-lg overflow-hidden border-2 border-border">
+                        <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                      </div>
+                    ) : (
+                      <div className="w-32 h-32 rounded-lg border-2 border-dashed border-border flex items-center justify-center bg-muted">
+                        <Image className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        className="hidden"
+                        id="image-upload"
+                      />
+                      <Label
+                        htmlFor="image-upload"
+                        className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80"
+                      >
+                        <Upload className="h-4 w-4" />
+                        Upload Image
+                      </Label>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="selling_price" className="text-foreground">Selling Price (₦) *</Label>
-                  <Input
-                    id="selling_price"
-                    type="number"
-                    step="0.01"
-                    value={formData.selling_price}
-                    onChange={(e) => setFormData({ ...formData, selling_price: e.target.value })}
-                    placeholder="8000"
-                    className="bg-background border-input text-foreground"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label htmlFor="quantity" className="text-foreground">Initial Quantity *</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                    placeholder="50"
-                    className="bg-background border-input text-foreground"
-                  />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <Label htmlFor="name" className="text-foreground">Product Name *</Label>
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="e.g., Midnight Rose Perfume"
+                      className="bg-background border-input text-foreground"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label htmlFor="category" className="text-foreground">Category *</Label>
+                    <Select value={formData.category_id} onValueChange={(value) => setFormData({ ...formData, category_id: value })}>
+                      <SelectTrigger className="bg-background border-input text-foreground">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-card border-border">
+                        {categories?.map((cat: any) => (
+                          <SelectItem key={cat.id} value={cat.id} className="text-foreground">
+                            {cat.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="cost_price" className="text-foreground">Cost Price (₦) *</Label>
+                    <Input
+                      id="cost_price"
+                      type="number"
+                      step="0.01"
+                      value={formData.cost_price}
+                      onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })}
+                      placeholder="5000"
+                      className="bg-background border-input text-foreground"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="selling_price" className="text-foreground">Selling Price (₦) *</Label>
+                    <Input
+                      id="selling_price"
+                      type="number"
+                      step="0.01"
+                      value={formData.selling_price}
+                      onChange={(e) => setFormData({ ...formData, selling_price: e.target.value })}
+                      placeholder="8000"
+                      className="bg-background border-input text-foreground"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label htmlFor="quantity" className="text-foreground">
+                      {editingProduct ? "Quantity" : "Initial Quantity"} *
+                    </Label>
+                    <Input
+                      id="quantity"
+                      type="number"
+                      value={formData.quantity}
+                      onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                      placeholder="50"
+                      className="bg-background border-input text-foreground"
+                    />
+                  </div>
                 </div>
               </div>
               <Button type="submit" disabled={createMutation.isPending} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
-                {createMutation.isPending ? "Adding..." : "Add Product"}
+                {createMutation.isPending ? (editingProduct ? "Updating..." : "Adding...") : (editingProduct ? "Update Product" : "Add Product")}
               </Button>
             </form>
           </DialogContent>
@@ -206,17 +326,28 @@ export default function Products() {
           <Table>
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
+                <TableHead className="text-muted-foreground">Image</TableHead>
                 <TableHead className="text-muted-foreground">Product</TableHead>
                 <TableHead className="text-muted-foreground">Category</TableHead>
                 <TableHead className="text-muted-foreground text-right">Cost</TableHead>
                 <TableHead className="text-muted-foreground text-right">Price</TableHead>
                 <TableHead className="text-muted-foreground text-right">Margin</TableHead>
                 <TableHead className="text-muted-foreground text-right">Stock</TableHead>
+                <TableHead className="text-muted-foreground">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {products.map((product: any) => (
                 <TableRow key={product.id} className="border-border hover:bg-muted/50">
+                  <TableCell>
+                    {product.image_url ? (
+                      <img src={product.image_url} alt={product.name} className="w-12 h-12 object-cover rounded-md" />
+                    ) : (
+                      <div className="w-12 h-12 bg-muted rounded-md flex items-center justify-center">
+                        <Image className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="font-medium text-foreground">{product.name}</TableCell>
                   <TableCell className="text-foreground">{product.categories?.name}</TableCell>
                   <TableCell className="text-right text-foreground">₦{Number(product.cost_price).toLocaleString()}</TableCell>
@@ -233,6 +364,26 @@ export default function Products() {
                         {product.quantity}
                       </Badge>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(product)}
+                        className="text-primary hover:text-primary hover:bg-primary/10"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(product.id)}
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
