@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Plus, ShoppingCart, Trash2, FileText, Download } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, FileText, Minus, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 interface CartItem {
   product_id: string;
@@ -16,6 +17,7 @@ interface CartItem {
   quantity: number;
   unit_price: number;
   subtotal: number;
+  max_quantity: number;
 }
 
 export default function Sales() {
@@ -236,8 +238,13 @@ export default function Sales() {
     if (!product) return;
 
     const qty = parseInt(quantity);
+    if (qty <= 0) {
+      toast.error("Quantity must be greater than 0");
+      return;
+    }
+
     if (qty > product.quantity) {
-      toast.error("Insufficient stock!");
+      toast.error(`Only ${product.quantity} units available!`);
       return;
     }
 
@@ -245,7 +252,7 @@ export default function Sales() {
     if (existing) {
       const newQty = existing.quantity + qty;
       if (newQty > product.quantity) {
-        toast.error("Insufficient stock!");
+        toast.error(`Only ${product.quantity} units available!`);
         return;
       }
       setCart(cart.map(item =>
@@ -253,6 +260,7 @@ export default function Sales() {
           ? { ...item, quantity: newQty, subtotal: newQty * item.unit_price }
           : item
       ));
+      toast.success(`Updated ${product.name} quantity`);
     } else {
       setCart([...cart, {
         product_id: product.id,
@@ -260,12 +268,34 @@ export default function Sales() {
         quantity: qty,
         unit_price: Number(product.selling_price),
         subtotal: qty * Number(product.selling_price),
+        max_quantity: product.quantity,
       }]);
+      toast.success(`${product.name} added to cart`);
     }
 
     setSelectedProduct("");
     setQuantity("1");
-    toast.success("Added to cart!");
+  };
+
+  const updateQuantity = (productId: string, newQuantity: number) => {
+    const item = cart.find(i => i.product_id === productId);
+    if (!item) return;
+
+    if (newQuantity <= 0) {
+      removeFromCart(productId);
+      return;
+    }
+
+    if (newQuantity > item.max_quantity) {
+      toast.error(`Only ${item.max_quantity} units available`);
+      return;
+    }
+
+    setCart(cart.map(item =>
+      item.product_id === productId
+        ? { ...item, quantity: newQuantity, subtotal: newQuantity * item.unit_price }
+        : item
+    ));
   };
 
   const removeFromCart = (productId: string) => {
@@ -273,7 +303,13 @@ export default function Sales() {
     toast.success("Item removed from cart");
   };
 
+  const clearCart = () => {
+    setCart([]);
+    toast.success("Cart cleared");
+  };
+
   const totalAmount = cart.reduce((sum, item) => sum + item.subtotal, 0);
+  const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   const completeSale = useMutation({
     mutationFn: async () => {
@@ -351,15 +387,20 @@ export default function Sales() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label className="text-foreground">Product</Label>
+              <Label className="text-foreground">Select Product</Label>
               <Select value={selectedProduct} onValueChange={setSelectedProduct}>
                 <SelectTrigger className="bg-background border-input text-foreground">
-                  <SelectValue placeholder="Select product" />
+                  <SelectValue placeholder="Choose a product..." />
                 </SelectTrigger>
-                <SelectContent className="bg-card border-border">
+                <SelectContent className="bg-card border-border max-h-[300px]">
                   {products?.map((product: any) => (
                     <SelectItem key={product.id} value={product.id} className="text-foreground">
-                      {product.name} (₦{Number(product.selling_price).toLocaleString()}) - Stock: {product.quantity}
+                      <div className="flex justify-between items-center w-full">
+                        <span>{product.name}</span>
+                        <span className="text-sm text-muted-foreground ml-4">
+                          ₦{Number(product.selling_price).toLocaleString()} • Stock: {product.quantity}
+                        </span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -373,7 +414,14 @@ export default function Sales() {
                 min="1"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
+                placeholder="Enter quantity"
                 className="bg-background border-input text-foreground"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addToCart();
+                  }
+                }}
               />
             </div>
 
@@ -390,6 +438,7 @@ export default function Sales() {
                     <SelectValue placeholder="Walk-in customer" />
                   </SelectTrigger>
                   <SelectContent className="bg-card border-border">
+                    <SelectItem value="" className="text-foreground">Walk-in Customer</SelectItem>
                     {customers?.map((customer: any) => (
                       <SelectItem key={customer.id} value={customer.id} className="text-foreground">
                         {customer.name} - {customer.phone}
@@ -417,51 +466,102 @@ export default function Sales() {
         </Card>
 
         <Card className="bg-card border-border">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="text-foreground font-serif flex items-center gap-2">
               <ShoppingCart className="h-5 w-5 text-primary" />
-              Cart ({cart.length} {cart.length === 1 ? 'item' : 'items'})
+              Cart
+              {cart.length > 0 && (
+                <Badge variant="secondary" className="ml-2 bg-primary/10 text-primary">
+                  {cart.length} {cart.length === 1 ? 'product' : 'products'} • {totalItems} {totalItems === 1 ? 'item' : 'items'}
+                </Badge>
+              )}
             </CardTitle>
+            {cart.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearCart}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {cart.length === 0 ? (
               <div className="text-center py-12">
                 <ShoppingCart className="h-16 w-16 text-muted-foreground mx-auto mb-4 opacity-50" />
-                <p className="text-muted-foreground">Your cart is empty</p>
+                <p className="text-muted-foreground font-medium">Your cart is empty</p>
                 <p className="text-sm text-muted-foreground mt-1">Add products to begin</p>
               </div>
             ) : (
               <>
-                <div className="space-y-3 mb-6">
+                <div className="space-y-3 mb-6 max-h-[400px] overflow-y-auto pr-2">
                   {cart.map((item) => (
-                    <div key={item.product_id} className="flex items-center justify-between p-3 bg-muted rounded-lg hover:bg-muted/80 transition-colors">
-                      <div className="flex-1">
-                        <p className="font-medium text-foreground">{item.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {item.quantity} × ₦{item.unit_price.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <p className="text-lg font-semibold text-primary">
-                          ₦{item.subtotal.toLocaleString()}
-                        </p>
+                    <div key={item.product_id} className="flex flex-col gap-2 p-3 bg-muted rounded-lg hover:bg-muted/80 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="font-medium text-foreground">{item.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            ₦{item.unit_price.toLocaleString()} each
+                          </p>
+                        </div>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => removeFromCart(item.product_id)}
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10 -mt-1 -mr-1"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => updateQuantity(item.product_id, item.quantity - 1)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="text-sm font-medium w-12 text-center">
+                            {item.quantity}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => updateQuantity(item.product_id, item.quantity + 1)}
+                            className="h-8 w-8 p-0"
+                            disabled={item.quantity >= item.max_quantity}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                          <span className="text-xs text-muted-foreground ml-2">
+                            Max: {item.max_quantity}
+                          </span>
+                        </div>
+                        
+                        <p className="text-lg font-semibold text-primary">
+                          ₦{item.subtotal.toLocaleString()}
+                        </p>
                       </div>
                     </div>
                   ))}
                 </div>
 
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center text-xl font-bold border-t border-border pt-4">
-                    <span className="text-foreground">Total:</span>
-                    <span className="text-primary">₦{totalAmount.toLocaleString()}</span>
+                  <div className="space-y-2 border-t border-border pt-4">
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Subtotal ({totalItems} items):</span>
+                      <span>₦{totalAmount.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xl font-bold">
+                      <span className="text-foreground">Total:</span>
+                      <span className="text-primary">₦{totalAmount.toLocaleString()}</span>
+                    </div>
                   </div>
 
                   <Button
