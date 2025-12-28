@@ -23,7 +23,7 @@ export default function Sales() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState("");
   const [quantity, setQuantity] = useState("1");
-  const [customerId, setCustomerId] = useState("");
+  const [customerId, setCustomerId] = useState("walk-in");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const queryClient = useQueryClient();
 
@@ -151,7 +151,7 @@ export default function Sales() {
       const { data: sale, error: saleError } = await supabase
         .from("sales")
         .insert({
-          customer_id: customerId || null,
+          customer_id: customerId === "walk-in" ? null : customerId,
           total_amount: totalAmount,
           payment_method: paymentMethod,
         })
@@ -182,11 +182,11 @@ export default function Sales() {
     },
     onSuccess: async (sale) => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
-      const customer = customers?.find(c => c.id === customerId);
+      const customer = customerId !== "walk-in" ? customers?.find(c => c.id === customerId) : null;
       await downloadInvoiceAsPDF(sale, cart, customer);
       toast.success("Sale completed! Invoice generated.");
       setCart([]);
-      setCustomerId("");
+      setCustomerId("walk-in");
       setPaymentMethod("Cash");
     },
     onError: (error: Error) => {
@@ -248,7 +248,7 @@ export default function Sales() {
                     <SelectValue placeholder="Walk-in customer" />
                   </SelectTrigger>
                   <SelectContent className="bg-card border-border">
-                    <SelectItem value="" className="text-foreground">Walk-in Customer</SelectItem>
+                    <SelectItem value="walk-in" className="text-foreground">Walk-in Customer</SelectItem>
                     {customers?.map((customer: any) => (
                       <SelectItem key={customer.id} value={customer.id} className="text-foreground">
                         {customer.name} - {customer.phone}
