@@ -1,4 +1,4 @@
--- Drop and recreate function with proper security
+-- Drop and recreate function with proper security..
 DROP TRIGGER IF EXISTS update_products_updated_at ON public.products;
 DROP FUNCTION IF EXISTS public.update_updated_at_column() CASCADE;
 
