@@ -10,24 +10,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Plus, AlertCircle, Package, Pencil, Trash2, Upload, Image } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 
 export default function Products() {
   const [open, setOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [productToDelete, setProductToDelete] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     category_id: "",
@@ -75,31 +63,24 @@ export default function Products() {
   const uploadImage = async () => {
     if (!imageFile) return null;
 
-    try {
-      const fileExt = imageFile.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `products/${fileName}`;
+    const fileExt = imageFile.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `products/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('product-images')
-        .upload(filePath, imageFile);
+    const { error: uploadError } = await supabase.storage
+      .from('product-images')
+      .upload(filePath, imageFile);
 
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
-        toast.error('Failed to upload image');
-        return null;
-      }
-
-      const { data } = supabase.storage
-        .from('product-images')
-        .getPublicUrl(filePath);
-
-      return data.publicUrl;
-    } catch (error) {
-      console.error('Image upload error:', error);
-      toast.error('Failed to upload image');
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
       return null;
     }
+
+    const { data } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
   };
 
   const createMutation = useMutation({
@@ -112,13 +93,11 @@ export default function Products() {
       }
 
       const productData = {
-        name: formData.name,
-        category_id: formData.category_id,
+        ...formData,
         cost_price: parseFloat(formData.cost_price),
         selling_price: parseFloat(formData.selling_price),
         quantity: parseInt(formData.quantity),
-        description: formData.description || null,
-        image_url: imageUrl || null,
+        image_url: imageUrl,
       };
 
       if (editingProduct) {
@@ -144,35 +123,15 @@ export default function Products() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      // First check if product is used in any sales
-      const { data: saleItems } = await supabase
-        .from("sale_items")
-        .select("id")
-        .eq("product_id", id)
-        .limit(1);
-
-      if (saleItems && saleItems.length > 0) {
-        throw new Error("Cannot delete product that has been sold. Consider setting stock to 0 instead.");
-      }
-
-      // Delete the product
-      const { error } = await supabase
-        .from("products")
-        .delete()
-        .eq("id", id);
-      
+      const { error } = await supabase.from("products").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       toast.success("Product deleted successfully!");
-      setDeleteDialogOpen(false);
-      setProductToDelete(null);
     },
     onError: (error: Error) => {
       toast.error(`Failed to delete product: ${error.message}`);
-      setDeleteDialogOpen(false);
-      setProductToDelete(null);
     },
   });
 
@@ -207,14 +166,9 @@ export default function Products() {
     setOpen(true);
   };
 
-  const handleDeleteClick = (id: string) => {
-    setProductToDelete(id);
-    setDeleteDialogOpen(true);
-  };
-
-  const confirmDelete = () => {
-    if (productToDelete) {
-      deleteMutation.mutate(productToDelete);
+  const handleDelete = (id: string) => {
+    if (window.confirm("Are you sure you want to delete this product?")) {
+      deleteMutation.mutate(id);
     }
   };
 
@@ -365,29 +319,6 @@ export default function Products() {
         </Dialog>
       </div>
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-card border-border">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-foreground">Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground">
-              This action cannot be undone. This will permanently delete the product from your inventory.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="bg-secondary text-secondary-foreground hover:bg-secondary/80">
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDelete}
-              disabled={deleteMutation.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {isLoading ? (
         <div className="text-center text-muted-foreground">Loading products...</div>
       ) : products && products.length > 0 ? (
@@ -441,16 +372,14 @@ export default function Products() {
                         size="sm"
                         onClick={() => handleEdit(product)}
                         className="text-primary hover:text-primary hover:bg-primary/10"
-                        title="Edit product"
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDeleteClick(product.id)}
+                        onClick={() => handleDelete(product.id)}
                         className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        title="Delete product"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
